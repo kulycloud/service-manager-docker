@@ -16,6 +16,7 @@ import (
 	"github.com/moby/moby/client"
 	"net"
 	"strconv"
+	"time"
 )
 
 const (
@@ -169,11 +170,11 @@ func (r *Reconciler) processService(ctx context.Context, cList *serviceContainer
 	// ensure service containers
 	n := int(service.Replicas)
 	if len(cList.services) < n {
-		for _, c := range cList.lbs {
+		for _, c := range cList.services {
 			svcEndpoints = append(svcEndpoints, getHttpEndpoint(&c, config.GlobalConfig.LocalHostFromDocker))
 		}
 		i := len(cList.services)
-		for ;i < 2; i++ {
+		for ; i < n; i++ {
 			endpoint, err := r.StartServiceContainer(ctx, namespace, serviceName, service)
 			if err != nil {
 				return err
@@ -349,22 +350,28 @@ func (r *Reconciler) StartLoadBalancer(ctx context.Context, namespace string, se
 }
 
 func (r *Reconciler) getNextPort() (int, error) {
+	logger.Info("Searching usable port")
 	for {
 		port := r.nextPort
 		r.nextPort++
 
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
+		portStr := fmt.Sprintf("%v", port)
+
+		timeout := time.Second
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort("localhost", portStr), timeout)
 		if err != nil {
-			logger.Info("Port occupied", "port", port)
-			continue
+			logger.Infow("Found usable port", "port", port)
+			return port, nil
 		}
 
-		err = listener.Close()
-		if err != nil {
+		if conn != nil {
+			_ = conn.Close()
+			logger.Infow("Port in use", "port", port)
 			continue
 		}
-
+		logger.Info("Found usable port", "port", port)
 		return port, nil
+
 	}
 }
 
