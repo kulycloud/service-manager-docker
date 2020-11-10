@@ -376,5 +376,33 @@ func (r *Reconciler) getNextPort() (int, error) {
 }
 
 func (r *Reconciler) PropagateStorageToLoadBalancers(ctx context.Context, endpoints []*protoCommon.Endpoint) {
+	logger.Infow("Propagating new storage endpoints", "endpoints", endpoints)
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", fmt.Sprintf("%s=%s", typeLabel, typeLabelLB))
+	containers, err := r.client.ContainerList(ctx, types.ContainerListOptions{
+		Filters: filterArgs,
+	})
+
+	if err != nil {
+		logger.Warnf("error propagating storage to load balancers", "error", err)
+		return
+	}
+
+	lbEndpoints := make([]*protoCommon.Endpoint, 0)
+	for _, cont := range containers {
+		lbEndpoints = append(lbEndpoints, getRpcEndpoint(&cont, originOutsideDocker))
+	}
+
+	comm, err := communication.NewMultiLoadBalancerCommunicator(lbEndpoints)
+	if err != nil {
+		logger.Warnf("error propagating storage to load balancers", "error", err)
+		return
+	}
+
+	err = comm.RegisterStorageEndpoints(ctx, convertEndpointToInsideDocker(endpoints))
+	if err != nil {
+		logger.Warnf("error propagating storage to load balancers", "error", err)
+		return
+	}
 
 }
