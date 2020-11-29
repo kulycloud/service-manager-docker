@@ -159,7 +159,7 @@ func (r *Reconciler) processService(ctx context.Context, cList *serviceContainer
 	} else {
 		for i := 0 ;i < 2; i++ {
 			lbEndpoints = append(lbEndpoints, getRpcEndpoint(&cList.lbs[i], originOutsideDocker))
-			lbHttpEndpoints = append(lbEndpoints, getHttpEndpoint(&cList.lbs[i], config.GlobalConfig.LocalHostFromDocker))
+			lbHttpEndpoints = append(lbHttpEndpoints, getHttpEndpoint(&cList.lbs[i], config.GlobalConfig.LocalHostFromDocker))
 		}
 		err := r.StopContainers(ctx, cList.lbs[2:])
 		if err != nil {
@@ -329,6 +329,7 @@ func (r *Reconciler) StartLoadBalancer(ctx context.Context, namespace string, se
 		},
 		Env: []string{
 			fmt.Sprintf("PORT=%v", config.GlobalConfig.LoadBalancerControlPort),
+			fmt.Sprintf("HTTP_PORT=%v", config.GlobalConfig.HTTPPort),
 		},
 		Image: config.GlobalConfig.LoadBalancerImage,
 	}, &container.HostConfig{
