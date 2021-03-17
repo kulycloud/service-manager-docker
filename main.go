@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	commonCommunication "github.com/kulycloud/common/communication"
 	"github.com/kulycloud/common/logging"
 	"github.com/kulycloud/service-manager-docker/communication"
 	"github.com/kulycloud/service-manager-docker/config"
 	"github.com/kulycloud/service-manager-docker/reconciling"
-	"golang.org/x/net/context"
-	"time"
 )
 
 var logger = logging.GetForComponent("init")
@@ -20,59 +19,50 @@ func main() {
 		logger.Fatalw("Error parsing config", "error", err)
 	}
 	logger.Infow("Finished parsing config")
+	RegisterToControlPlane()
+}
+
+func RegisterToControlPlane() {
+	communicator := commonCommunication.RegisterToControlPlane("service-manager",
+		config.GlobalConfig.Host, config.GlobalConfig.Port,
+		config.GlobalConfig.ControlPlaneHost, config.GlobalConfig.ControlPlanePort, true)
 
 	listener := commonCommunication.NewListener(logging.GetForComponent("listener"))
 
-	//ctx := context.Background()
-	r, err := reconciling.NewReconciler(listener.Storage)
+	logger.Info("Starting listener")
+
+	if err := listener.Setup(config.GlobalConfig.Port); err != nil {
+		logger.Panicw("error initializing listener", "error", err)
+	}
+
+	handler := communication.NewServiceManagerHandler(listener)
+	handler.Register()
+
+	serveErr := listener.Serve()
+	communication.ControlPlane = <-communicator
+
+	r, err := reconciling.NewReconciler(communication.ControlPlane.Storage)
 	if err != nil {
 		logger.Fatalw("could not connect to cluster: %w", err)
 	}
 
-	listener.NewStorageHandlers = append(listener.NewStorageHandlers, r.PropagateStorageToLoadBalancers)
-
-	go registerLoop()
-
-	logger.Info("Starting listener")
-
-	if err = listener.Setup(config.GlobalConfig.Port); err != nil {
-		logger.Panicw("error initializing listener", "error", err)
+	if err != nil {
+		logger.Fatalw("could not setup cluster: %w", err)
 	}
 
-	handler := communication.NewServiceManagerHandler(r.ReconcileDeployments, listener)
-	handler.Register()
+	handler.Reconciler = r.ReconcileDeployments
+	// listen on events
+	err = communication.ControlPlane.RegisterStorageChangedHandler(func(event *commonCommunication.StorageChanged) {
+		r.PropagateStorageToLoadBalancers(context.Background(), event.Endpoints)
+	})
+	if err != nil {
+		logger.Panicw("error registering for events", "error", err)
+	}
 
 	//go r.WatchPods(context.Background())
 
-	if err = listener.Serve(); err != nil {
+	err = <-serveErr
+	if err != nil {
 		logger.Panicw("error serving listener", "error", err)
 	}
-}
-
-func registerLoop() {
-	for {
-		_, err := register()
-		if err == nil {
-			break
-		}
-
-		logger.Info("Retrying in 5s...")
-		time.Sleep(5*time.Second)
-	}
-}
-
-func register() (*commonCommunication.ControlPlaneCommunicator, error) {
-	comm := commonCommunication.NewControlPlaneCommunicator()
-	err := comm.Connect(config.GlobalConfig.ControlPlaneHost, config.GlobalConfig.ControlPlanePort)
-	if err != nil {
-		logger.Errorw("Could not connect to control-plane", "error", err)
-		return nil, err
-	}
-	err = comm.RegisterThisService(context.Background(), "service-manager", config.GlobalConfig.Host, config.GlobalConfig.Port)
-	if err != nil {
-		logger.Errorw("Could not register service", "error", err)
-		return nil, err
-	}
-	logger.Info("Registered to control-plane")
-	return comm, nil
 }

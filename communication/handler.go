@@ -9,6 +9,8 @@ import (
 	protoServices "github.com/kulycloud/protocol/services"
 )
 
+var ControlPlane *commonCommunication.ControlPlaneCommunicator
+
 var _ protoServices.ServiceManagerServer = &ServiceManagerHandler{}
 
 var ErrStorageNotReady = errors.New("storage is not ready")
@@ -19,13 +21,12 @@ type ReconcileFunc = func(context.Context, string) error
 
 type ServiceManagerHandler struct {
 	protoServices.UnimplementedServiceManagerServer
-	reconciler ReconcileFunc
+	Reconciler ReconcileFunc
 	listener *commonCommunication.Listener
 }
 
-func NewServiceManagerHandler(reconciler ReconcileFunc, listener *commonCommunication.Listener) *ServiceManagerHandler {
+func NewServiceManagerHandler(listener *commonCommunication.Listener) *ServiceManagerHandler {
 	return &ServiceManagerHandler{
-		reconciler: reconciler,
 		listener: listener,
 	}
 }
@@ -35,10 +36,15 @@ func (handler *ServiceManagerHandler) Register() {
 }
 
 func (handler *ServiceManagerHandler) Reconcile(ctx context.Context, request *protoServices.ReconcileRequest) (*protoCommon.Empty, error) {
-	if !handler.listener.Storage.Ready() {
+	if ControlPlane == nil || !ControlPlane.Storage.Ready() {
 		return nil, ErrStorageNotReady
 	}
 
 	logger.Info("Starting reconcile!")
-	return &protoCommon.Empty{}, handler.reconciler(ctx, request.Namespace)
+	var err error = nil
+	if handler.Reconciler != nil {
+		err = handler.Reconciler(ctx, request.Namespace)
+	}
+	return &protoCommon.Empty{}, err
 }
+
