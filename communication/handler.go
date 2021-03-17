@@ -7,8 +7,6 @@ import (
 	"github.com/kulycloud/common/logging"
 	protoCommon "github.com/kulycloud/protocol/common"
 	protoServices "github.com/kulycloud/protocol/services"
-	"github.com/kulycloud/service-manager-docker/config"
-	"github.com/kulycloud/service-manager-docker/reconciling"
 )
 
 var ControlPlane *commonCommunication.ControlPlaneCommunicator
@@ -23,13 +21,12 @@ type ReconcileFunc = func(context.Context, string) error
 
 type ServiceManagerHandler struct {
 	protoServices.UnimplementedServiceManagerServer
-	reconciler ReconcileFunc
+	Reconciler ReconcileFunc
 	listener *commonCommunication.Listener
 }
 
-func NewServiceManagerHandler(reconciler ReconcileFunc, listener *commonCommunication.Listener) *ServiceManagerHandler {
+func NewServiceManagerHandler(listener *commonCommunication.Listener) *ServiceManagerHandler {
 	return &ServiceManagerHandler{
-		reconciler: reconciler,
 		listener: listener,
 	}
 }
@@ -39,53 +36,15 @@ func (handler *ServiceManagerHandler) Register() {
 }
 
 func (handler *ServiceManagerHandler) Reconcile(ctx context.Context, request *protoServices.ReconcileRequest) (*protoCommon.Empty, error) {
-	if !handler.listener.Storage.Ready() {
+	if ControlPlane == nil || !ControlPlane.Storage.Ready() {
 		return nil, ErrStorageNotReady
 	}
 
 	logger.Info("Starting reconcile!")
-	return &protoCommon.Empty{}, handler.reconciler(ctx, request.Namespace)
+	var err error = nil
+	if handler.Reconciler != nil {
+		err = handler.Reconciler(ctx, request.Namespace)
+	}
+	return &protoCommon.Empty{}, err
 }
 
-func RegisterToControlPlane() {
-	communicator := commonCommunication.RegisterToControlPlane("service-manager",
-		config.GlobalConfig.Host, config.GlobalConfig.Port,
-		config.GlobalConfig.ControlPlaneHost, config.GlobalConfig.ControlPlanePort)
-
-	listener := commonCommunication.NewListener(logging.GetForComponent("listener"))
-
-	//ctx := context.Background()
-	r, err := reconciling.NewReconciler(listener.Storage)
-	if err != nil {
-		logger.Fatalw("could not connect to cluster: %w", err)
-	}
-
-	listener.NewStorageHandlers = append(listener.NewStorageHandlers, r.PropagateStorageToLoadBalancers)
-
-	logger.Info("Starting listener")
-
-	if err = listener.Setup(config.GlobalConfig.Port); err != nil {
-		logger.Panicw("error initializing listener", "error", err)
-	}
-
-	handler := NewServiceManagerHandler(r.ReconcileDeployments, listener)
-	handler.Register()
-
-	//go r.WatchPods(context.Background())
-
-	serveErr := listener.Serve()
-	ControlPlane = <-communicator
-
-	// listen on events
-	err = ControlPlane.RegisterStorageChangedHandler(func(event *commonCommunication.StorageChanged) {
-		r.PropagateStorageToLoadBalancers(context.Background(), event.Endpoints)
-	})
-	if err != nil {
-		logger.Panicw("error registering for events", "error", err)
-	}
-
-	err = <-serveErr
-	if err != nil {
-		logger.Panicw("error serving listener", "error", err)
-	}
-}
