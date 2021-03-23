@@ -9,9 +9,9 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/kr/pretty v0.2.0 // indirect
-	github.com/kulycloud/common v0.0.0-20210319003959-530ee5e8b1e3
-	github.com/kulycloud/protocol v0.0.0-20210319003638-857838179fbd
-	github.com/kulycloud/service-manager-k8s v0.0.0-20210323091009-e8d2c4bbd3df // indirect
+	github.com/kulycloud/common v0.0.0-20210323100819-93d825d597b5
+	github.com/kulycloud/protocol v0.0.0-20210323100304-4caa455444f5
+	github.com/kulycloud/service-manager-k8s v0.0.0-20210323112640-b897241bd338
 	github.com/moby/moby v1.13.1
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
