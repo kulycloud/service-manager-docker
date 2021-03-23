@@ -9,7 +9,7 @@ type Config struct {
 	Port                    uint32 `configName:"port"`
 	ControlPlaneHost        string `configName:"controlPlaneHost"`
 	ControlPlanePort        uint32 `configName:"controlPlanePort"`
-	LoadBalancerImage       string `configName:"loadBalancerImage" defaultValue:"kuly/load-balancer"`
+	LoadBalancerImage       string `configName:"loadBalancerImage" defaultValue:"ghcr.io/kulycloud/load-balancer:latest-dev"`
 	LoadBalancerControlPort uint32 `configName:"loadBalancerControlPort" defaultValue:"12270"`
 	HTTPPort                uint32 `configName:"httpPort" defaultValue:"30000"`
 	LocalHostFromDocker     string `configName:"localHostFromDocker" defaultValue:"127.0.0.1"`

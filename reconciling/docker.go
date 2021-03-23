@@ -13,6 +13,7 @@ import (
 	protoStorage "github.com/kulycloud/protocol/storage"
 	"github.com/kulycloud/service-manager-docker/config"
 	"github.com/kulycloud/service-manager-k8s/communication"
+	k8sReconciling "github.com/kulycloud/service-manager-k8s/reconciling"
 	"github.com/moby/moby/client"
 	"net"
 	"strconv"
@@ -34,13 +35,15 @@ const originOutsideDocker = "127.0.0.1"
 
 var logger = logging.GetForComponent("reconciler")
 
-type Reconciler struct {
+var _ k8sReconciling.Reconciler = &DockerReconciler{}
+
+type DockerReconciler struct {
 	storage *commonCommunication.StorageCommunicator
 	client *client.Client
 	nextPort int
 }
 
-func NewReconciler(storage *commonCommunication.StorageCommunicator) (*Reconciler, error) {
+func NewDockerReconciler(storage *commonCommunication.StorageCommunicator) (*DockerReconciler, error) {
 
 	cli, err := client.NewEnvClient()
 
@@ -48,7 +51,7 @@ func NewReconciler(storage *commonCommunication.StorageCommunicator) (*Reconcile
 		return nil, err
 	}
 
-	return &Reconciler{
+	return &DockerReconciler{
 		storage: storage,
 		client: cli,
 		nextPort: 40000,
@@ -60,7 +63,7 @@ type serviceContainerList struct {
 	services []types.Container
 }
 
-func (r *Reconciler) ReconcileDeployments(ctx context.Context, namespace string) error {
+func (r *DockerReconciler) ReconcileDeployments(ctx context.Context, namespace string) error {
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("label", fmt.Sprintf("%s=%s", namespaceLabel, namespace))
 	containers, err := r.client.ContainerList(ctx, types.ContainerListOptions{
@@ -130,7 +133,7 @@ func (r *Reconciler) ReconcileDeployments(ctx context.Context, namespace string)
 	return nil
 }
 
-func (r *Reconciler) processService(ctx context.Context, cList *serviceContainerList, namespace string, serviceName string) error {
+func (r *DockerReconciler) processService(ctx context.Context, cList *serviceContainerList, namespace string, serviceName string) error {
 	service, err := r.storage.GetService(ctx, namespace, serviceName)
 
 	if err != nil {
@@ -217,7 +220,7 @@ func convertEndpointToInsideDocker(endpoints []*protoCommon.Endpoint) []*protoCo
 	return ep
 }
 
-func (r *Reconciler) StopContainers(ctx context.Context, containers []types.Container) error {
+func (r *DockerReconciler) StopContainers(ctx context.Context, containers []types.Container) error {
 	for _, cont := range containers {
 		err := r.client.ContainerStop(ctx, cont.ID, nil)
 		if err != nil {
@@ -238,7 +241,7 @@ func getRpcEndpoint(cont *types.Container, origin string) *protoCommon.Endpoint 
 	return &protoCommon.Endpoint{Host: origin, Port: uint32(port)}
 }
 
-func (r *Reconciler) StartServiceContainer(ctx context.Context, namespace string, serviceName string, service *protoStorage.Service) (*protoCommon.Endpoint, error) {
+func (r *DockerReconciler) StartServiceContainer(ctx context.Context, namespace string, serviceName string, service *protoStorage.Service) (*protoCommon.Endpoint, error) {
 	env := make([]string, 0)
 	for key, val := range service.Environment {
 		env = append(env, fmt.Sprintf("%s=%s", key, val))
@@ -290,7 +293,7 @@ func (r *Reconciler) StartServiceContainer(ctx context.Context, namespace string
 	return &protoCommon.Endpoint{Host: config.GlobalConfig.LocalHostFromDocker, Port: uint32(port)}, nil
 }
 
-func (r *Reconciler) StartLoadBalancer(ctx context.Context, namespace string, serviceName string) (*protoCommon.Endpoint, *protoCommon.Endpoint, error) {
+func (r *DockerReconciler) StartLoadBalancer(ctx context.Context, namespace string, serviceName string) (*protoCommon.Endpoint, *protoCommon.Endpoint, error) {
 	httpHostPort, err := r.getNextPort()
 	if err != nil {
 		return nil, nil, err
@@ -350,7 +353,7 @@ func (r *Reconciler) StartLoadBalancer(ctx context.Context, namespace string, se
 	return &protoCommon.Endpoint{Host: originOutsideDocker, Port: uint32(rpcHostPort)}, &protoCommon.Endpoint{Host: config.GlobalConfig.LocalHostFromDocker, Port: uint32(httpHostPort)}, nil
 }
 
-func (r *Reconciler) getNextPort() (int, error) {
+func (r *DockerReconciler) getNextPort() (int, error) {
 	logger.Info("Searching usable port")
 	for {
 		port := r.nextPort
@@ -376,7 +379,7 @@ func (r *Reconciler) getNextPort() (int, error) {
 	}
 }
 
-func (r *Reconciler) PropagateStorageToLoadBalancers(ctx context.Context, endpoints []*protoCommon.Endpoint) {
+func (r *DockerReconciler) PropagateStorageToLoadBalancers(ctx context.Context, endpoints []*protoCommon.Endpoint) {
 	logger.Infow("Propagating new storage endpoints", "endpoints", endpoints)
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("label", fmt.Sprintf("%s=%s", typeLabel, typeLabelLB))
@@ -406,4 +409,9 @@ func (r *Reconciler) PropagateStorageToLoadBalancers(ctx context.Context, endpoi
 		return
 	}
 
+}
+
+func (r *DockerReconciler) MonitorCluster(ctx context.Context) error {
+	// we don't do that here
+	return nil
 }
